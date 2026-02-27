@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Super Publicitário Amarelo - Fase 1</title>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3/dist/phaser.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        canvas {
+            border: 2px solid #fff;
+        }
+    </style>
+</head>
+<body>
+<script>
+const WORLD_WIDTH = 2400;
+const WORLD_HEIGHT = 600;
+const GROUND_Y = 580;
+const MIDPOINT_X = WORLD_WIDTH / 2;
+
+const PLAYER_TEXTURE_URL = 'https://labs.phaser.io/assets/sprites/mario.png';
+const GOOMBA_TEXTURE_URL = 'https://labs.phaser.io/assets/sprites/goomba.png';
+
+const config = {
+    type: Phaser.AUTO,
+    width: 800,
+    height: 600,
+    physics: {
+        default: 'arcade',
+        arcade: {
+            gravity: { y: 1000 },
+            debug: false
+        }
+    },
+    scene: {
+        preload,
+        create,
+        update
+    }
+};
+
+const game = new Phaser.Game(config);
+
+let player;
+let cursors;
+let keys;
+let platforms;
+let enemies;
+let coffees;
+let lastDirection = 1;
+let isDead = false;
+
+let skyLayer;
+let sun;
+
+const spawnPoint = { x: 120, y: 450 };
+
+function preload() {
+    this.load.image('playerMario', PLAYER_TEXTURE_URL);
+    this.load.image('goombaEnemy', GOOMBA_TEXTURE_URL);
+}
+
+function create() {
+    createBackground.call(this);
+
+    this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+
+    createPlatforms.call(this);
+    createPlayer.call(this);
+    createEnemies.call(this);
+    createControls.call(this);
+
+    coffees = this.physics.add.group({ allowGravity: false });
+
+    this.physics.add.collider(player, platforms);
+    this.physics.add.collider(enemies, platforms);
+    this.physics.add.collider(coffees, platforms, (coffee) => coffee.destroy());
+
+    this.physics.add.overlap(player, enemies, () => {
+        if (!isDead) {
+            dieAndRespawn.call(this);
+        }
+    });
+
+    this.physics.add.overlap(coffees, enemies, (coffee, enemy) => {
+        coffee.destroy();
+        enemy.destroy();
+    });
+
+    this.cameras.main.startFollow(player, true, 0.08, 0.08);
+}
+
+function createBackground() {
+    skyLayer = this.add.rectangle(400, 300, 800, 600, 0x5c94fc).setScrollFactor(0);
+    sun = this.add.circle(680, 120, 50, 0xfff08a).setScrollFactor(0);
+}
+
+function createPlatforms() {
+    platforms = this.physics.add.staticGroup();
+
+    const ground = this.add.rectangle(WORLD_WIDTH / 2, GROUND_Y, WORLD_WIDTH, 40, 0x4d2911);
+    this.physics.add.existing(ground, true);
+    platforms.add(ground);
+
+    const floatingPlatforms = [
+        { x: 450, y: 470, w: 160, h: 30, c: 0xffa500 },
+        { x: 850, y: 390, w: 170, h: 30, c: 0xffa500 },
+        { x: 1250, y: 320, w: 180, h: 30, c: 0xe28b0f },
+        { x: 1620, y: 430, w: 180, h: 30, c: 0xe28b0f },
+        { x: 1980, y: 360, w: 180, h: 30, c: 0xffa500 }
+    ];
+
+    floatingPlatforms.forEach((p) => {
+        const platform = this.add.rectangle(p.x, p.y, p.w, p.h, p.c);
+        this.physics.add.existing(platform, true);
+        platforms.add(platform);
+    });
+}
+
+function createPlayer() {
+    player = this.physics.add.sprite(spawnPoint.x, spawnPoint.y, 'playerMario');
+    player.setCollideWorldBounds(true);
+    player.setScale(1.5);
+    player.setSize(14, 16, true);
+}
+
+function createEnemies() {
+    enemies = this.physics.add.group();
+
+    const enemyData = [
+        { x: 700, y: 520, range: 160, speed: 80 },
+        { x: 1120, y: 520, range: 200, speed: 100 },
+        { x: 1730, y: 380, range: 120, speed: 90 },
+        { x: 2120, y: 520, range: 180, speed: 110 }
+    ];
+
+    enemyData.forEach((data) => {
+        const enemy = this.physics.add.sprite(data.x, data.y, 'goombaEnemy');
+        enemy.setScale(1.3);
+        enemy.setCollideWorldBounds(true);
+        enemy.body.setBounce(0, 0);
+        enemy.body.setVelocityX(data.speed);
+        enemy.setData('startX', data.x);
+        enemy.setData('range', data.range);
+        enemy.setData('speed', data.speed);
+        enemy.setData('dir', 1);
+        enemies.add(enemy);
+    });
+}
+
+function createControls() {
+    cursors = this.input.keyboard.createCursorKeys();
+    keys = this.input.keyboard.addKeys({
+        run: Phaser.Input.Keyboard.KeyCodes.A,
+        jump: Phaser.Input.Keyboard.KeyCodes.B,
+        shoot: Phaser.Input.Keyboard.KeyCodes.SPACE
+    });
+}
+
+function update() {
+    if (!player || isDead) return;
+
+    let speed = keys.run.isDown ? 320 : 160;
+
+    if (cursors.left.isDown) {
+        player.body.setVelocityX(-speed);
+        lastDirection = -1;
+        player.setFlipX(true);
+    } else if (cursors.right.isDown) {
+        player.body.setVelocityX(speed);
+        lastDirection = 1;
+        player.setFlipX(false);
+    } else {
+        player.body.setVelocityX(0);
+    }
+
+    if (keys.jump.isDown && player.body.blocked.down) {
+        player.body.setVelocityY(-550);
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(keys.shoot)) {
+        shootCoffee.call(this);
+    }
+
+    enemies.getChildren().forEach((enemy) => {
+        if (!enemy.body) return;
+
+        const startX = enemy.getData('startX');
+        const range = enemy.getData('range');
+        let dir = enemy.getData('dir');
+        const speedEnemy = enemy.getData('speed');
+
+        if (enemy.x > startX + range) {
+            dir = -1;
+            enemy.setData('dir', dir);
+            enemy.setFlipX(true);
+        } else if (enemy.x < startX - range) {
+            dir = 1;
+            enemy.setData('dir', dir);
+            enemy.setFlipX(false);
+        }
+
+        enemy.body.setVelocityX(dir * speedEnemy);
+    });
+
+    updateSunset(player.x);
+
+    if (player.y > WORLD_HEIGHT + 200) {
+        dieAndRespawn.call(this);
+    }
+}
+
+function updateSunset(playerX) {
+    if (playerX < MIDPOINT_X) {
+        skyLayer.setFillStyle(0x5c94fc);
+        sun.setFillStyle(0xfff08a);
+        sun.setPosition(680, 120);
+        return;
+    }
+
+    const progress = Phaser.Math.Clamp((playerX - MIDPOINT_X) / (WORLD_WIDTH - MIDPOINT_X), 0, 1);
+
+    const dayColor = Phaser.Display.Color.ValueToColor(0x5c94fc);
+    const sunsetColor = Phaser.Display.Color.ValueToColor(0xf08c52);
+    const nightColor = Phaser.Display.Color.ValueToColor(0x261447);
+
+    const midBlend = Phaser.Display.Color.Interpolate.ColorWithColor(dayColor, sunsetColor, 100, progress * 100);
+    const finalBlend = Phaser.Display.Color.Interpolate.ColorWithColor(
+        Phaser.Display.Color.ValueToColor(Phaser.Display.Color.GetColor(midBlend.r, midBlend.g, midBlend.b)),
+        nightColor,
+        100,
+        Math.max(0, (progress - 0.5) * 200)
+    );
+
+    const skyColor = Phaser.Display.Color.GetColor(finalBlend.r, finalBlend.g, finalBlend.b);
+    skyLayer.setFillStyle(skyColor);
+
+    const sunStartY = 120;
+    const sunEndY = 520;
+    const sunY = Phaser.Math.Linear(sunStartY, sunEndY, progress);
+    const sunColor = Phaser.Display.Color.Interpolate.ColorWithColor(
+        Phaser.Display.Color.ValueToColor(0xfff08a),
+        Phaser.Display.Color.ValueToColor(0xff5e3a),
+        100,
+        progress * 100
+    );
+
+    sun.setPosition(680, sunY);
+    sun.setFillStyle(Phaser.Display.Color.GetColor(sunColor.r, sunColor.g, sunColor.b));
+    sun.setAlpha(1 - progress * 0.7);
+}
+
+function shootCoffee() {
+    const coffee = this.add.circle(player.x + (lastDirection * 20), player.y - 12, 7, 0x4b2e2a);
+    this.physics.add.existing(coffee);
+
+    coffee.body.setAllowGravity(false);
+    coffee.body.setCircle(7);
+    coffee.body.setVelocityX(lastDirection * 500);
+
+    coffees.add(coffee);
+
+    this.time.delayedCall(1600, () => {
+        if (coffee.active) {
+            coffee.destroy();
+        }
+    });
+}
+
+function dieAndRespawn() {
+    isDead = true;
+    player.body.enable = false;
+    player.setAlpha(0.3);
+
+    this.time.delayedCall(500, () => {
+        player.setPosition(spawnPoint.x, spawnPoint.y);
+        player.setAlpha(1);
+        player.body.enable = true;
+        player.body.reset(spawnPoint.x, spawnPoint.y);
+        player.body.setVelocity(0, 0);
+        isDead = false;
+    });
+}
+</script>
+</body>
+</html>
